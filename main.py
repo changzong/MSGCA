@@ -10,12 +10,13 @@ import pdb
 
 def set_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_path", type=str, default='/Users/zongchang/Desktop/实验数据集/')
-    parser.add_argument("--dataset", type=str, default='Finance-StockPredict')
+    parser.add_argument("--data_path", type=str, default='./data/')
+    parser.add_argument("--dataset", type=str, default='inno_stock')
     parser.add_argument("--word2vec", type=str, default='wordvec_dict.pkl')
+    parser.add_argument("--lm_name", type=str, default="bert-base-chinese")
     parser.add_argument("--sample_ratio", type=float, default=0.8)
     parser.add_argument("--predict_date", type=str, default="2022-10-10")
-    parser.add_argument("--date_move_steps", type=int, default=5)
+    parser.add_argument("--date_move_steps", type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument('--weight_decay', type=float, default=5e-4)
@@ -24,8 +25,9 @@ def set_args():
     parser.add_argument("--test_batch_size", type=int, default=76)
     parser.add_argument("--input_ind_dim", type=int, default=1)
     parser.add_argument("--input_doc_dim", type=int, default=300)
-    parser.add_argument("--input_graph_dim", type=int, default=64)
+    parser.add_argument("--input_graph_dim", type=int, default=768) # same with LM hidden size
     parser.add_argument("--hidden_dim", type=int, default=64)
+    parser.add_argument("--node_init_lm", action='store_true', default=True)
     parser.add_argument("--direction_type", type=str, choices=['st', 'ts', 'bi'], default='bi')
     parser.add_argument("--source_fusion_type", type=str, choices=['cat','trans','expert'], default='cat')
     parser.add_argument("--ts_fusion_type", type=str, choices=['trans', 'rnn'], default='trans')

@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 .DS_Store
+data/wordvec_dict.pkl
 
 # C extensions
 *.so

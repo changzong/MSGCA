@@ -1,9 +1,11 @@
+import os
 import torch
 import numpy as np
 import scipy as sp
 import networkx as nx
 from datetime import datetime
 import pickle
+from transformers import AutoTokenizer, AutoModel
 
 import pdb
 
@@ -74,12 +76,52 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
 def graph_process(args, input_graph):
     features = None
     adj_list = []
-    for snapshot in input_graph:
-        node_list = list(snapshot.nodes())
-        if features == None:
-            # initial embeddings can be replaced with language model output from description
-            features = [torch.rand(args.input_graph_dim) for node in node_list]
-            features = torch.stack(features)
+    for snapshot in input_graph[:2]:
+        if features is None:
+            node_list = list(snapshot.nodes())
+            features = []
+            # randomly initialize node embeddings
+            if not args.node_init_lm:
+                features = [torch.rand(args.input_graph_dim) for node in node_list]
+                features = torch.stack(features)
+            # initialize company node embeddings with language model
+            else:
+                node_init_emb_file = args.data_path + args.dataset + '/node_init_emb.pkl'
+                # embeddings from lm already stored in file, load it
+                if os.path.isfile(node_init_emb_file):
+                    with open(node_init_emb_file, 'rb') as f:
+                        node_init_emb = pickle.load(f)
+                    for node in node_list:
+                        if node in node_init_emb:
+                            features.append(node_init_emb[node])
+                        else:
+                            features.append(torch.rand(args.input_graph_dim))
+                # generate embeddings of each name from lm, and save to file
+                else:
+                    id_2_com_name = input_graph[2]
+                    id_2_emb = {}
+                    print("Generating node embeddings from LM: " + args.lm_name)
+                    tokenizer = AutoTokenizer.from_pretrained(args.lm_name, trust_remote_code=True)
+                    model = AutoModel.from_pretrained(args.lm_name, trust_remote_code=True)
+                    model = model.eval()
+                    for node in node_list:
+                        if node in id_2_com_name:
+                            node_emb = get_emb_from_lm(model, tokenizer, id_2_com_name[node])
+                            features.append(node_emb)
+                            id_2_emb[node] = node_emb
+                        else:
+                            features.append(torch.rand(args.input_graph_dim))
+                    with open(node_init_emb_file, 'wb') as f:
+                        pickle.dump(id_2_emb, f)
+                features = torch.stack(features)
         adj_sp_tensor = sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(snapshot))
         adj_list.append(adj_sp_tensor)
     return {'features': features, 'adj_list': adj_list}
+
+
+def get_emb_from_lm(model, tokenizer, input):
+    input_ids = tokenizer.encode(input)
+    inputs_tensor = torch.tensor([input_ids])
+    last_hidden_states = model(inputs_tensor)[0] # 1 * seq_len * emb_size
+    emb = torch.squeeze(torch.mean(last_hidden_states, 1), 0)
+    return emb
