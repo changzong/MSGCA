@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
-import pickle
-import jieba
 
 import pdb
 
@@ -12,27 +10,26 @@ class SourceEncoder(nn.Module):
         super().__init__()
         self.device = device
         self.doc_encoder = DocEncoder(device, input_doc_dim, output_dim, word2vec_path)
-        self.indicator_price_encoder = IndicatorEncoder(device, input_ind_dim, output_dim, 2)
-        self.indicator_stats_encoder = IndicatorEncoder(device, input_ind_dim, output_dim, 2)
+        self.indicator_price_encoder = IndicatorEncoder(device, input_ind_dim, output_dim)
+        self.indicator_stats_encoder = IndicatorEncoder(device, input_ind_dim, output_dim)
         self.graph_encoder = GraphEncoder(device, input_graph_dim, output_dim)
-
-    # input_data: [entity, timestamp, source, [value]]
+    
+    # input_data: [entity, source, timestamp, dim]
     def forward(self, input_data, graph, idxs):
-        embeddings = [] # [entity, timestamp, source, embedding]
+        embeddings = []
         node_embs = self.graph_encoder(graph)
-        for entity, idx in zip(input_data, idxs):
-            embedding_stamp = []
-            for timestamp in entity:
-                embedding_source = []
-                embedding_source.append(self.doc_encoder(timestamp[0]))
-                embedding_source.append(self.indicator_price_encoder(timestamp[1]))
-                embedding_source.append(self.indicator_stats_encoder(timestamp[2]))
-                embedding_source.append(torch.squeeze(torch.index_select(node_embs, 0, torch.tensor(idx)),0))
-                embedding_stamp.append(torch.stack(embedding_source))
-            embeddings.append(torch.stack(embedding_stamp))
-        embedding_output = torch.stack(embeddings)
-        return embedding_output
-
+        for entity in input_data:
+            tmp = []
+            tmp.append(self.doc_encoder(entity[0])) # doc input: (timestamp * dim)
+            tmp.append(self.indicator_price_encoder(entity[1])) # price input: (timestamp * dim)
+            tmp.append(self.indicator_price_encoder(entity[2])) # stats input: (timestamp * dim)
+            embeddings.append(torch.stack(tmp))
+        other_emb = torch.stack(embeddings)
+        graph_emb = torch.index_select(node_embs, 0, torch.tensor(idxs).to(self.device)) # entity * 1 * dim
+        graph_emb = torch.unsqueeze(graph_emb,1).repeat(1, other_emb.shape[2], 1)
+        embedding_output = torch.cat((other_emb, torch.unsqueeze(graph_emb, 1)),1) # entity * source * timestamp * dim
+        return torch.permute(embedding_output, (0,2,1,3)) # entity * timestamp * source * dim
+    
 
 class DocEncoder(nn.Module):
     def __init__(self, device, input_dim, output_dim, word2vec_path):
@@ -40,55 +37,27 @@ class DocEncoder(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.device = device
-        print("Loading word vectors...")
-        with open(word2vec_path, 'rb') as f:
-            self.wordvec_dict = pickle.load(f)
         self.linear = nn.Linear(input_dim, output_dim).to(device)
         self.doc_adaptor = SourceAdaptor(device, output_dim)
-
-    def doc2vec(self, doc):
-        doc_vecs = []
-        words = jieba.cut(doc)
-        for word in words:
-            if word in self.wordvec_dict:
-                doc_vecs.append(self.wordvec_dict[word])
-        doc_vec = torch.mean(torch.FloatTensor(doc_vecs), 0)
-        return doc_vec
     
-    def forward(self, doc_data):
-        doc_embeddings = []
-        if doc_data is None:
-            doc_embeddings.append(torch.zeros(self.output_dim))
-        else:
-            for doc in doc_data:
-                doc_embeddings.append(self.linear(self.doc2vec(doc)))
-        x = torch.mean(torch.stack(doc_embeddings), 0)
-        output = self.doc_adaptor(x)
+    def forward(self, doc_vec):
+        doc_embedding = self.linear(doc_vec.to(self.device))
+        output = self.doc_adaptor(doc_embedding)
         return output
 
 
 class IndicatorEncoder(nn.Module):
-    def __init__(self, device, input_dim, output_dim, value_num):
-        # value_num: the number of values in indicator input data, such as 2 in [close_price, return_ratio]
+    def __init__(self, device, input_dim, output_dim):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.device = device
-        self.layers = []
-        for i in range(value_num):
-            self.layers.append(nn.Linear(input_dim, output_dim).to(device))
+        self.linear = nn.Linear(input_dim, output_dim).to(device)
         self.indicator_adaptor = SourceAdaptor(device, output_dim)
 
-    def forward(self, indicator_data):
-        indicator_embeddings = []
-        if indicator_data is None:
-            indicator_embeddings.append(torch.zeros(self.output_dim))
-        else:
-            for i in range(len(indicator_data)):
-                ind_tensor = torch.tensor(indicator_data[i]).float().to(self.device)
-                indicator_embeddings.append(self.layers[i](torch.unsqueeze(ind_tensor, 0)))
-        x = torch.mean(torch.stack(indicator_embeddings),0)
-        output = self.indicator_adaptor(x)
+    def forward(self, indicator_vec):
+        indicator_embedding = self.linear(indicator_vec.to(self.device))
+        output = self.indicator_adaptor(indicator_embedding)
         return output
 
 

@@ -5,6 +5,7 @@ import scipy as sp
 import networkx as nx
 from datetime import datetime
 import pickle
+import jieba
 from transformers import AutoTokenizer, AutoModel
 
 import pdb
@@ -36,7 +37,7 @@ def build_input(predict_date, data, idxs, op):
         data_set.append(com_tmp)
     return data_set
 
-def time_aligner(data_set):
+def time_aligner(data_set, word2vec, args):
     time_dict_data = [] # [source, entity, timestamp:value]
     for source in data_set:
         entity_tmp = []
@@ -50,19 +51,58 @@ def time_aligner(data_set):
     timestamps = list(time_dict_data[1][0].keys())
 
     aligned_data = [] # [entity, timestamp, source, [value]]
-    for idx in range(len(data_set[1])):
+    for idx in range(len(data_set[1])): # stock price/citation count should be exist for every stock/publication 
         time_tmp = []
         for stamp in timestamps:
             source_tmp = []
             for source in time_dict_data:
                 if stamp in source[idx]:
-                    source_tmp.append(source[idx][stamp])
+                    source_tmp.append(source[idx][stamp][0]) # just get the first value for each list for now, for docs, we can combine them; for indicators, we need to test each of them
                 else:
                     source_tmp.append(None)
             time_tmp.append(source_tmp)
         aligned_data.append(time_tmp)
 
+    # initializing input: entity * source * timestamp * dim
+    aligned_data = vector_initialize(aligned_data, word2vec, args.input_doc_dim)
     return aligned_data
+
+def vector_initialize(data_set, wordvec, doc_vec_dim):
+    final_input = []
+    for item in data_set:
+        new_timestamp = []
+        for timestamp in item:
+            if timestamp[0]:
+                doc_vecs = []
+                words = jieba.cut(timestamp[0])
+                for word in words:
+                    if word in wordvec:
+                        doc_vecs.append(wordvec[word])
+                doc_vec = torch.mean(torch.FloatTensor(doc_vecs), 0)
+            else:
+                doc_vec = torch.zeros(doc_vec_dim)
+            if timestamp[1]:
+                price_vec = torch.FloatTensor([timestamp[1]])
+            else:
+                price_vec = torch.FloatTensor([0.0])
+            if timestamp[2]:
+                stats_vec = torch.FloatTensor([timestamp[2]])
+            else:
+                stats_vec = torch.FloatTensor([0.0])
+            new_timestamp.append([doc_vec, price_vec, stats_vec])
+        final_input.append(new_timestamp)
+    # switch dim 2 and dim 1 for faster process in gpu
+    final_input_2 = []
+    for item in final_input:
+        item_tmp = []
+        for i in range(len(item[0])):
+            source_tmp = []
+            for j in range(len(item)):
+                source_tmp.append(item[j][i])
+            item_tmp.append(torch.stack(source_tmp))
+        final_input_2.append(item_tmp)
+    return final_input_2
+    
 
 def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     """Convert a scipy sparse matrix to a torch sparse tensor."""

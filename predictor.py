@@ -13,7 +13,7 @@ class ScorePredictor(nn.Module):
             nn.Linear(input_dim, int(input_dim/2)),
             nn.ReLU(),
             nn.Linear(int(input_dim/2), output_dim, bias=False),
-            nn.Sigmoid()
+            nn.Softmax(dim=1)
         ).to(self.device)
 
     def forward(self, fusion_input):

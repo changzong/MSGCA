@@ -60,7 +60,7 @@ class CSFModel(nn.Module):
                 self.experts.append(MLPModel(input_dim * 4, output_dim, device))
             self.gate_layer = nn.Sequential(
                 nn.Linear(input_dim * 4, 4, bias=False),
-                nn.Softmax()
+                nn.Softmax(dim=1)
                 ).to(self.device)
 
     def forward(self, inputs):

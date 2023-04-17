@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+from sklearn.metrics import accuracy_score, matthews_corrcoef
 
 from source_encoder import SourceEncoder
 from fusion_model import FusionModel
@@ -22,18 +24,16 @@ class Model(nn.Module):
         return loss
 
     def evaluate(self, output, target):
-        loss_fn = nn.CrossEntropyLoss()
-        loss = loss_fn(output, torch.tensor(target).to(self.device))
-        return loss
+        output_labels = torch.argmax(output, dim=1)
+        acc = accuracy_score(output_labels.cpu().numpy(), np.array(target))
+        mcc = matthews_corrcoef(output_labels.cpu().numpy(), np.array(target))
+        return acc, mcc
 
     def forward(self, input_data, graph, idxs, label, mode):
         # shap: sample_num * timestamp_num * source_num * embedding_dim
         source_embedding = self.encoder(input_data, graph, idxs)
-
         fusion_embedding = self.fusion_model(source_embedding)
-
         predict_score = self.predictor(fusion_embedding)
-
         future_days = 1
         target = []
         for item in label:
@@ -43,5 +43,5 @@ class Model(nn.Module):
             loss = self.loss_function(predict_score, target)
             return loss
         elif mode == 'test':
-            loss = self.evaluate(predict_score, target)
-            return loss
+            acc, mcc  = self.evaluate(predict_score, target)
+            return acc, mcc

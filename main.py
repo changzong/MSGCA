@@ -34,7 +34,7 @@ def set_args():
     parser.add_argument("--all_fusion_type", type=str, choices=['mlp', 'trans_mlp', 'rgcn_mlp'], default='mlp')
     parser.add_argument("--fusion_dim", type=int, default=64)
     parser.add_argument("--score_dim", type=int, default=3)
-    parser.add_argument('--use_cuda', action='store_true', default=False)
+    parser.add_argument('--use_cuda', action='store_true', default=True)
     parser.add_argument('--use_spike_predictor', action='store_true', default=False)
     args = parser.parse_args()
     return args
@@ -61,29 +61,40 @@ def train_model(args, input_data, label):
     test_set = []
     train_label = []
     test_label = []
+
+    print("Loading word vectors...")
+    with open(args.data_path + args.word2vec, 'rb') as f:
+        wordvec_dict = pickle.load(f)
+
     for date in predict_dates:
         train_subset = [build_input(date, input_data[0], train_idxs, 'lt'),build_input(date, input_data[1], train_idxs, 'lt'),build_input(date, input_data[2], train_idxs, 'lt')]
-        train_set.extend(time_aligner(train_subset))
+        train_set.extend(time_aligner(train_subset, wordvec_dict, args))
         test_subset = [build_input(date, input_data[0], test_idxs, 'lt'),build_input(date, input_data[1], test_idxs, 'lt'),build_input(date, input_data[2], test_idxs, 'lt')]
-        test_set.extend(time_aligner(test_subset))
+        test_set.extend(time_aligner(test_subset, wordvec_dict, args))
         train_label.extend(build_input(date, label, train_idxs, 'gt'))
         test_label.extend(build_input(date, label, test_idxs, 'gt'))
 
     # make each sample have the same time length
-    time_span = len(train_set[0])
-    tmp1 = []
-    tmp2 = []
-    for item in train_set:
-        tmp1.append(item[-time_span:])
-    for item in test_set:
-        tmp2.append(item[-time_span:])
-    train_set = tmp1
-    test_set = tmp2
+    time_span_train = len(train_set[0][0]) # entity * source * <timestamp> * dim
+    tmp_train = []
+    tmp_test = []
+    for source in train_set:
+        tmp1 = []
+        for item in source:
+            tmp1.append(item[-time_span_train:])
+        tmp_train.append(tmp1)
+    for source in test_set:
+        tmp2 = []
+        for item in source:
+            tmp2.append(item[-time_span_train:])
+        tmp_test.append(tmp2)
+    train_set = tmp_train
+    test_set = tmp_test
     
     # prepare graph structure input and node indexs
     print("Processing graph data...")
     graph_input = graph_process(args, input_data[3])
-    node_train_idxs = train_idxs * (args.date_move_steps+1)
+    # node_train_idxs = train_idxs * (args.date_move_steps+1)
     node_test_idxs = test_idxs * (args.date_move_steps+1)
 
     # load model and train
@@ -103,7 +114,7 @@ def train_model(args, input_data, label):
             end = (i+1) * args.train_batch_size
             if end > len(train_set):
                 end = len(train_set)
-            loss = model(train_set[start: end], graph_input, node_train_idxs, train_label[start: end], 'train')
+            loss = model(train_set[start: end], graph_input, train_idxs, train_label[start: end], 'train')
             print('Epoch: %s Batch %s Training loss: %s' % (str(epoch), str(i), str(loss.item())))
             optimizer.zero_grad()
             loss.backward()
@@ -112,12 +123,12 @@ def train_model(args, input_data, label):
         train_loss = train_loss / batch_num
         print("Epoch: {}, Training loss:{}".format(epoch, train_loss))
 
-        if (epoch+1) % 5 == 0:
-            print("Evaluating for epoch: {}".format(epoch))
-            with torch.no_grad():
-                model.eval()
-                loss = model(test_set, graph_input, node_test_idxs, test_label, 'test')
-                print('Test metric: %s' % str(loss))
+        print("Evaluating for epoch: {}".format(epoch))
+        with torch.no_grad():
+            model.eval()
+            acc, mcc = model(test_set, graph_input, node_test_idxs, test_label, 'test')
+            print('Test Accuracy: %s' % str(acc))
+            print('Test Matthews Correlation Coefficient: %s' % str(mcc))
 
 
 args = set_args()
