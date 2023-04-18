@@ -10,12 +10,12 @@ from predictor import ScorePredictor
 import pdb
 
 class Model(nn.Module):
-    def __init__(self, args, device):
+    def __init__(self, args, sources, device):
         super().__init__()
         self.args = args
         self.device = device
         self.encoder = SourceEncoder(args.input_ind_dim, args.input_doc_dim, args.input_graph_dim, args.hidden_dim, args.data_path + args.word2vec, self.device)
-        self.fusion_model = FusionModel(args.hidden_dim, args.hidden_dim, args.fusion_dim, args.direction_type, args.source_fusion_type, args.ts_fusion_type, args.all_fusion_type, self.device)
+        self.fusion_model = FusionModel(args.hidden_dim, args.hidden_dim, args.fusion_dim, args.direction_type, args.source_fusion_type, args.ts_fusion_type, args.all_fusion_type, sources, self.device)
         self.predictor = ScorePredictor(args.fusion_dim, args.score_dim, args.use_spike_predictor, self.device)
 
     def loss_function(self, output, target):

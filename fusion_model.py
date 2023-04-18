@@ -5,11 +5,11 @@ import numpy as np
 import pdb
 
 class FusionModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, direction_type, source_fusion_type, ts_fusion_type, all_fusion_type, device):
+    def __init__(self, input_dim, hidden_dim, output_dim, direction_type, source_fusion_type, ts_fusion_type, all_fusion_type, sources, device):
         super().__init__()
         self.device = device
         self.direction_type = direction_type
-        self.cross_source_fusion_model = CSFModel(input_dim, hidden_dim, output_dim, source_fusion_type, device)
+        self.cross_source_fusion_model = CSFModel(input_dim, hidden_dim, output_dim, source_fusion_type, sources, device)
         self.cross_time_fusion_model = CTFModel(input_dim, hidden_dim, output_dim, ts_fusion_type, device)
         if direction_type == 'bi':
             self.all_fusion_model = AFModel(2 * output_dim, output_dim, all_fusion_type, device)
@@ -41,10 +41,11 @@ class FusionModel(nn.Module):
         return fused_embedding
 
 class CSFModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, fusion_type, device):
+    def __init__(self, input_dim, hidden_dim, output_dim, fusion_type, sources, device):
         super().__init__()
         self.device = device
         self.fusion_type = fusion_type
+        source_num = len(sources)
         # transformer fusion module
         if self.fusion_type == 'trans':
             self.layers = nn.ModuleList()
@@ -53,13 +54,13 @@ class CSFModel(nn.Module):
             for i in range(num_layer):
                 self.layers.append(TransformerEncoderLayer(input_dim, hidden_dim, output_dim, num_head, self.device))
         elif self.fusion_type == 'cat':
-            self.layer = nn.Linear(input_dim * 4, output_dim).to(device) # should use argument instead of 4
+            self.layer = nn.Linear(input_dim * source_num, output_dim).to(device)
         elif self.fusion_type == 'expert':
             self.experts = []
-            for i in range(4):
-                self.experts.append(MLPModel(input_dim * 4, output_dim, device))
+            for i in range(source_num):
+                self.experts.append(MLPModel(input_dim * source_num, output_dim, device))
             self.gate_layer = nn.Sequential(
-                nn.Linear(input_dim * 4, 4, bias=False),
+                nn.Linear(input_dim * source_num, source_num, bias=False),
                 nn.Softmax(dim=1)
                 ).to(self.device)
 

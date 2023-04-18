@@ -28,7 +28,7 @@ def set_args():
     parser.add_argument("--input_graph_dim", type=int, default=768) # same with LM hidden size
     parser.add_argument("--hidden_dim", type=int, default=64)
     parser.add_argument("--node_init_lm", action='store_true', default=True)
-    parser.add_argument("--direction_type", type=str, choices=['st', 'ts', 'bi'], default='bi')
+    parser.add_argument("--direction_type", type=str, choices=['st', 'ts', 'bi'], default='ts')
     parser.add_argument("--source_fusion_type", type=str, choices=['cat','trans','expert'], default='cat')
     parser.add_argument("--ts_fusion_type", type=str, choices=['trans', 'rnn'], default='trans')
     parser.add_argument("--all_fusion_type", type=str, choices=['mlp', 'trans_mlp', 'rgcn_mlp'], default='mlp')
@@ -39,7 +39,7 @@ def set_args():
     args = parser.parse_args()
     return args
 
-def train_model(args, input_data, label):
+def train_model(args, input_data, label, sources):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -67,9 +67,9 @@ def train_model(args, input_data, label):
         wordvec_dict = pickle.load(f)
 
     for date in predict_dates:
-        train_subset = [build_input(date, input_data[0], train_idxs, 'lt'),build_input(date, input_data[1], train_idxs, 'lt'),build_input(date, input_data[2], train_idxs, 'lt')]
+        train_subset = [build_input(date, input_data[i], train_idxs, 'lt') for i in range(len(input_data[:-1]))]
         train_set.extend(time_aligner(train_subset, wordvec_dict, args))
-        test_subset = [build_input(date, input_data[0], test_idxs, 'lt'),build_input(date, input_data[1], test_idxs, 'lt'),build_input(date, input_data[2], test_idxs, 'lt')]
+        test_subset = [build_input(date, input_data[i], test_idxs, 'lt') for i in range(len(input_data[:-1]))]
         test_set.extend(time_aligner(test_subset, wordvec_dict, args))
         train_label.extend(build_input(date, label, train_idxs, 'gt'))
         test_label.extend(build_input(date, label, test_idxs, 'gt'))
@@ -93,12 +93,13 @@ def train_model(args, input_data, label):
     
     # prepare graph structure input and node indexs
     print("Processing graph data...")
-    graph_input = graph_process(args, input_data[3])
+    graph_input = graph_process(args, input_data[-1])
+
     # node_train_idxs = train_idxs * (args.date_move_steps+1)
     node_test_idxs = test_idxs * (args.date_move_steps+1)
 
     # load model and train
-    model = Model(args, device)
+    model = Model(args, sources, device)
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -132,5 +133,7 @@ def train_model(args, input_data, label):
 
 
 args = set_args()
-input_data, label = load_data(args)
-train_model(args, input_data, label)
+# doc should be the first, then indicator types, graph should be the last
+sources = ['document', 'indicator-daily', 'graph']
+input_data, label = load_data(args, sources)
+train_model(args, input_data, label, sources)

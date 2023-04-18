@@ -22,12 +22,12 @@ class SourceEncoder(nn.Module):
             tmp = []
             tmp.append(self.doc_encoder(entity[0])) # doc input: (timestamp * dim)
             tmp.append(self.indicator_price_encoder(entity[1])) # price input: (timestamp * dim)
-            tmp.append(self.indicator_price_encoder(entity[2])) # stats input: (timestamp * dim)
+            # tmp.append(self.indicator_stats_encoder(entity[2])) # stats input: (timestamp * dim)
             embeddings.append(torch.stack(tmp))
-        other_emb = torch.stack(embeddings)
         graph_emb = torch.index_select(node_embs, 0, torch.tensor(idxs).to(self.device)) # entity * 1 * dim
-        graph_emb = torch.unsqueeze(graph_emb,1).repeat(1, other_emb.shape[2], 1)
-        embedding_output = torch.cat((other_emb, torch.unsqueeze(graph_emb, 1)),1) # entity * source * timestamp * dim
+        dynamic_emb = torch.stack(embeddings)
+        static_emb = torch.unsqueeze(graph_emb,1).repeat(1, dynamic_emb.shape[2], 1)
+        embedding_output = torch.cat((dynamic_emb, torch.unsqueeze(static_emb, 1)),1) # entity * source * timestamp * dim
         return torch.permute(embedding_output, (0,2,1,3)) # entity * timestamp * source * dim
     
 

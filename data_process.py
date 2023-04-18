@@ -10,18 +10,28 @@ from transformers import AutoTokenizer, AutoModel
 
 import pdb
 
-def load_data(args):
-    with open(args.data_path+args.dataset+'/doc_date_input.pkl', 'rb') as f:
-        doc_date_input = pickle.load(f)
-    with open(args.data_path+args.dataset+'/graph_input.pkl', 'rb') as f:
-        graph_input = pickle.load(f)
-    with open(args.data_path+args.dataset+'/indicator_day_input.pkl', 'rb') as f:
-        ind_day_input = pickle.load(f)
-    with open(args.data_path+args.dataset+'/indicator_quarter_input.pkl', 'rb') as f:
-        ind_quar_input = pickle.load(f)
+def load_data(args, sources):
+    input_data = []
+    if 'document' in sources:
+        with open(args.data_path+args.dataset+'/doc_date_input.pkl', 'rb') as f:
+            doc_date_input = pickle.load(f)
+        input_data.append(doc_date_input)
+    if 'indicator-daily' in sources:
+        with open(args.data_path+args.dataset+'/indicator_day_input.pkl', 'rb') as f:
+            ind_day_input = pickle.load(f)
+        input_data.append(ind_day_input)
+    if 'indicator-quarter' in sources:
+        with open(args.data_path+args.dataset+'/indicator_quarter_input.pkl', 'rb') as f:
+           ind_quar_input = pickle.load(f)
+        input_data.append(ind_quar_input)
+    if 'graph' in sources:
+        with open(args.data_path+args.dataset+'/graph_input.pkl', 'rb') as f:
+            graph_input = pickle.load(f)
+        input_data.append(graph_input)
+
     with open(args.data_path+args.dataset+'/trend_daily_label.pkl', 'rb') as f:
         trend_daily_label = pickle.load(f)
-    return [doc_date_input, ind_day_input, ind_quar_input, graph_input], trend_daily_label
+    return input_data, trend_daily_label
 
 def build_input(predict_date, data, idxs, op):
     data_set = []
@@ -72,6 +82,7 @@ def vector_initialize(data_set, wordvec, doc_vec_dim):
     for item in data_set:
         new_timestamp = []
         for timestamp in item:
+            source_vec = []
             if timestamp[0]:
                 doc_vecs = []
                 words = jieba.cut(timestamp[0])
@@ -81,15 +92,14 @@ def vector_initialize(data_set, wordvec, doc_vec_dim):
                 doc_vec = torch.mean(torch.FloatTensor(doc_vecs), 0)
             else:
                 doc_vec = torch.zeros(doc_vec_dim)
-            if timestamp[1]:
-                price_vec = torch.FloatTensor([timestamp[1]])
-            else:
-                price_vec = torch.FloatTensor([0.0])
-            if timestamp[2]:
-                stats_vec = torch.FloatTensor([timestamp[2]])
-            else:
-                stats_vec = torch.FloatTensor([0.0])
-            new_timestamp.append([doc_vec, price_vec, stats_vec])
+            source_vec.append(doc_vec)
+            for ind_value in timestamp[1:]:
+                if ind_value:
+                    ind_vec = torch.FloatTensor([ind_value])
+                else:
+                    ind_vec = torch.FloatTensor([0.0])
+                source_vec.append(ind_vec)
+            new_timestamp.append(source_vec)
         final_input.append(new_timestamp)
     # switch dim 2 and dim 1 for faster process in gpu
     final_input_2 = []
