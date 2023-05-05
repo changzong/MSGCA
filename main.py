@@ -93,7 +93,9 @@ def train_model(args, input_data, label, sources):
     
     # prepare graph structure input and node indexs
     print("Processing graph data...")
-    graph_input = graph_process(args, input_data[-1])
+    graph_input = None
+    if args.dataset == 'inno_stock':
+        graph_input = graph_process_static(args, input_data[-1], time_span_train)
 
     # node_train_idxs = train_idxs * (args.date_move_steps+1)
     node_test_idxs = test_idxs * (args.date_move_steps+1)

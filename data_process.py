@@ -123,7 +123,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     shape = torch.Size(sparse_mx.shape)
     return torch.sparse.FloatTensor(indices, values, shape)
 
-def graph_process(args, input_graph):
+def graph_process_static(args, input_graph, time_span):
     features = None
     adj_list = []
     for snapshot in input_graph[:2]:
@@ -166,7 +166,8 @@ def graph_process(args, input_graph):
                 features = torch.stack(features)
         adj_sp_tensor = sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(snapshot))
         adj_list.append(adj_sp_tensor)
-    return {'features': features, 'adj_list': adj_list}
+    output = [{'features': features, 'adj_list': adj_list}] * time_span # timestamp * dict
+    return output
 
 
 def get_emb_from_lm(model, tokenizer, input):

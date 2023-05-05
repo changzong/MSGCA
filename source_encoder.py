@@ -16,19 +16,20 @@ class SourceEncoder(nn.Module):
     
     # input_data: [entity, source, timestamp, dim]
     def forward(self, input_data, graph, idxs):
+        # graph: timestamp * dict(features, adj_list, ...)
         embeddings = []
-        node_embs = self.graph_encoder(graph)
+        node_embs = self.graph_encoder(graph) # timestamp * node_num * dim
         for entity in input_data:
             tmp = []
             tmp.append(self.doc_encoder(entity[0])) # doc input: (timestamp * dim)
             tmp.append(self.indicator_price_encoder(entity[1])) # price input: (timestamp * dim)
             # tmp.append(self.indicator_stats_encoder(entity[2])) # stats input: (timestamp * dim)
             embeddings.append(torch.stack(tmp))
-        graph_emb = torch.index_select(node_embs, 0, torch.tensor(idxs).to(self.device)) # entity * 1 * dim
-        dynamic_emb = torch.stack(embeddings)
-        static_emb = torch.unsqueeze(graph_emb,1).repeat(1, dynamic_emb.shape[2], 1)
-        embedding_output = torch.cat((dynamic_emb, torch.unsqueeze(static_emb, 1)),1) # entity * source * timestamp * dim
-        return torch.permute(embedding_output, (0,2,1,3)) # entity * timestamp * source * dim
+        graph_emb = torch.index_select(node_embs, 1, torch.tensor(idxs).to(self.device)) # timestampe * entity_num * dim
+        dynamic_emb = torch.stack(embeddings) # entity * source * timestamp * dim
+        graph_emb = torch.unsqueeze(torch.permute(graph_emb, (1,0,2)), 1) # entity * 1 * timestamp * dim
+        embedding_output = torch.cat((dynamic_emb, graph_emb),1) # entity * source+1 * timestamp * dim
+        return torch.permute(embedding_output, (0,2,1,3)) # entity * timestamp * source+1 * dim
     
 
 class DocEncoder(nn.Module):
@@ -79,12 +80,16 @@ class GraphEncoder(nn.Module):
         self.graph_adaptor = SourceAdaptor(device, output_dim)
 
     def forward(self, graph_data):
-        x = graph_data['features'].to(self.device)
-        y = graph_data['adj_list']
-        for i, layer in enumerate(self.layers):
-            x = layer(x, y)
-            x = F.dropout(self.relu(x), self.dropout, training=self.training)
-        output = self.graph_adaptor(x)
+        embeddings = []
+        for t in range(len(graph_data)):
+            x = graph_data[t]['features'].to(self.device)
+            y = graph_data[t]['adj_list']
+            for i, layer in enumerate(self.layers):
+                x = layer(x, y)
+                x = F.dropout(self.relu(x), self.dropout, training=self.training)
+            output_single = self.graph_adaptor(x)
+            embeddings.append(output_single)
+        output = torch.stack(embeddings)
         return output
         
 class RGCN(nn.Module):
