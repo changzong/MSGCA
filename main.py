@@ -11,7 +11,7 @@ import pdb
 def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default='./data/')
-    parser.add_argument("--dataset", type=str, default='inno_stock')
+    parser.add_argument("--dataset", type=str, choices=['inno_stock', 'dblp_paper'], default='inno_stock')
     parser.add_argument("--word2vec", type=str, default='wordvec_dict.pkl')
     parser.add_argument("--lm_name", type=str, default="bert-base-chinese")
     parser.add_argument("--sample_ratio", type=float, default=0.8)
@@ -136,6 +136,6 @@ def train_model(args, input_data, label, sources):
 
 args = set_args()
 # doc should be the first, then indicator types, graph should be the last
-sources = ['document', 'indicator-daily', 'graph']
+sources = ['document', 'indicator', 'graph']
 input_data, label = load_data(args, sources)
 train_model(args, input_data, label, sources)

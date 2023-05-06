@@ -13,11 +13,11 @@ import pdb
 def load_data(args, sources):
     input_data = []
     if 'document' in sources:
-        with open(args.data_path+args.dataset+'/doc_date_input.pkl', 'rb') as f:
+        with open(args.data_path+args.dataset+'/doc_input.pkl', 'rb') as f:
             doc_date_input = pickle.load(f)
         input_data.append(doc_date_input)
-    if 'indicator-daily' in sources:
-        with open(args.data_path+args.dataset+'/indicator_day_input.pkl', 'rb') as f:
+    if 'indicator' in sources:
+        with open(args.data_path+args.dataset+'/indicator_input.pkl', 'rb') as f:
             ind_day_input = pickle.load(f)
         input_data.append(ind_day_input)
     if 'indicator-quarter' in sources:
