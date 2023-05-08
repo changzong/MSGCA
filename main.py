@@ -14,6 +14,7 @@ def set_args():
     parser.add_argument("--dataset", type=str, choices=['inno_stock','dblp_paper'], default='dblp_paper')
     parser.add_argument("--predict_date", type=str, choices=['2022-10-10','2008-01-01'], default='2008-01-01')
     parser.add_argument("--word2vec", type=str, default='wordvec_dict.pkl')
+    parser.add_argument("--node_init_lm", action='store_true', default=False)
     parser.add_argument("--lm_name", type=str, choices=['bert-base-chinese','bert-base-uncased'], default='bert-base-uncased')
     parser.add_argument("--sample_ratio", type=float, default=0.8)
     parser.add_argument("--date_move_steps", type=int, default=3)
@@ -27,7 +28,6 @@ def set_args():
     parser.add_argument("--input_doc_dim", type=int, default=300)
     parser.add_argument("--input_graph_dim", type=int, default=768) # same with LM hidden size
     parser.add_argument("--hidden_dim", type=int, default=64)
-    parser.add_argument("--node_init_lm", action='store_true', default=True)
     parser.add_argument("--direction_type", type=str, choices=['st', 'ts', 'bi'], default='ts')
     parser.add_argument("--source_fusion_type", type=str, choices=['cat','trans','expert'], default='cat')
     parser.add_argument("--ts_fusion_type", type=str, choices=['trans', 'rnn'], default='trans')
