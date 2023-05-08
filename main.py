@@ -11,11 +11,11 @@ import pdb
 def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default='./data/')
-    parser.add_argument("--dataset", type=str, choices=['inno_stock', 'dblp_paper'], default='inno_stock')
+    parser.add_argument("--dataset", type=str, choices=['inno_stock','dblp_paper'], default='dblp_paper')
+    parser.add_argument("--predict_date", type=str, choices=['2022-10-10','2008-01-01'], default='2008-01-01')
     parser.add_argument("--word2vec", type=str, default='wordvec_dict.pkl')
-    parser.add_argument("--lm_name", type=str, default="bert-base-chinese")
+    parser.add_argument("--lm_name", type=str, choices=['bert-base-chinese','bert-base-uncased'], default='bert-base-uncased')
     parser.add_argument("--sample_ratio", type=float, default=0.8)
-    parser.add_argument("--predict_date", type=str, default="2022-10-10")
     parser.add_argument("--date_move_steps", type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--learning_rate", type=float, default=0.001)
@@ -96,8 +96,10 @@ def train_model(args, input_data, label, sources):
     graph_input = None
     if args.dataset == 'inno_stock':
         graph_input = graph_process_static(args, input_data[-1], time_span_train)
+    elif args.dataset == 'dblp_paper':
+        graph_input = graph_process_dynamic(args, input_data[-1], time_span_train)
 
-    # node_train_idxs = train_idxs * (args.date_move_steps+1)
+    node_train_idxs = train_idxs * (args.date_move_steps+1)
     node_test_idxs = test_idxs * (args.date_move_steps+1)
 
     # load model and train
@@ -117,7 +119,7 @@ def train_model(args, input_data, label, sources):
             end = (i+1) * args.train_batch_size
             if end > len(train_set):
                 end = len(train_set)
-            loss = model(train_set[start: end], graph_input, train_idxs, train_label[start: end], 'train')
+            loss = model(train_set[start: end], graph_input, node_train_idxs[start: end], train_label[start: end], 'train')
             print('Epoch: %s Batch %s Training loss: %s' % (str(epoch), str(i), str(loss.item())))
             optimizer.zero_grad()
             loss.backward()

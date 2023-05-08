@@ -29,7 +29,7 @@ def load_data(args, sources):
             graph_input = pickle.load(f)
         input_data.append(graph_input)
 
-    with open(args.data_path+args.dataset+'/trend_daily_label.pkl', 'rb') as f:
+    with open(args.data_path+args.dataset+'/trend_label.pkl', 'rb') as f:
         trend_daily_label = pickle.load(f)
     return input_data, trend_daily_label
 
@@ -169,6 +169,53 @@ def graph_process_static(args, input_graph, time_span):
     output = [{'features': features, 'adj_list': adj_list}] * time_span # timestamp * dict
     return output
 
+def graph_process_dynamic(args, input_graph, time_span):
+    output = []
+    for timestamp in range(time_span):
+        features = None
+        adj_list = []
+        for snapshot in input_graph[timestamp][:2]:
+            if features is None:
+                node_list = list(snapshot.nodes())
+                features = []
+                # randomly initialize node embeddings
+                if not args.node_init_lm:
+                    features = [torch.rand(args.input_graph_dim) for node in node_list]
+                    features = torch.stack(features)
+                # initialize company node embeddings with language model
+                else:
+                    node_init_emb_file = args.data_path + args.dataset + '/node_init_emb.pkl'
+                    # embeddings from lm already stored in file, load it
+                    if os.path.isfile(node_init_emb_file):
+                        with open(node_init_emb_file, 'rb') as f:
+                            node_init_emb = pickle.load(f)
+                        for node in node_list:
+                            if node in node_init_emb:
+                                features.append(node_init_emb[node])
+                            else:
+                                features.append(torch.rand(args.input_graph_dim))
+                    # generate embeddings of each name from lm, and save to file
+                    else:
+                        id_2_com_name = input_graph[timestamp][2]
+                        id_2_emb = {}
+                        print("Generating node embeddings from LM: " + args.lm_name)
+                        tokenizer = AutoTokenizer.from_pretrained(args.lm_name, trust_remote_code=True)
+                        model = AutoModel.from_pretrained(args.lm_name, trust_remote_code=True)
+                        model = model.eval()
+                        for node in node_list:
+                            if node in id_2_com_name:
+                                node_emb = get_emb_from_lm(model, tokenizer, id_2_com_name[node])
+                                features.append(node_emb)
+                                id_2_emb[node] = node_emb
+                            else:
+                                features.append(torch.rand(args.input_graph_dim))
+                        with open(node_init_emb_file, 'wb') as f:
+                            pickle.dump(id_2_emb, f)
+                    features = torch.stack(features)
+            adj_sp_tensor = sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(snapshot))
+            adj_list.append(adj_sp_tensor)
+        output.append({'features': features, 'adj_list': adj_list}) # timestamp * dict
+    return output
 
 def get_emb_from_lm(model, tokenizer, input):
     input_ids = tokenizer.encode(input)
