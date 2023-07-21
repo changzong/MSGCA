@@ -5,10 +5,16 @@ import scipy as sp
 import networkx as nx
 from datetime import datetime
 import pickle
-import jieba
 from transformers import AutoTokenizer, AutoModel
+from ts_to_prompt import *
+import openai
 
 import pdb
+
+openai.api_key = "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"
+llm_name = 'text-embedding-ada-002'
+tokenizer = AutoTokenizer.from_pretrained('prajjwal1/bert-tiny', trust_remote_code=True)
+model = AutoModel.from_pretrained('prajjwal1/bert-tiny', trust_remote_code=True)
 
 def load_data(args, sources):
     input_data = []
@@ -47,7 +53,7 @@ def build_input(predict_date, data, idxs, op):
         data_set.append(com_tmp)
     return data_set
 
-def time_aligner(data_set, word2vec, args):
+def time_aligner(data_set, args, date, mode):
     time_dict_data = [] # [source, entity, timestamp:value]
     for source in data_set:
         entity_tmp = []
@@ -61,7 +67,7 @@ def time_aligner(data_set, word2vec, args):
     timestamps = list(time_dict_data[1][0].keys())
 
     aligned_data = [] # [entity, timestamp, source, [value]]
-    for idx in range(len(data_set[1])): # stock price/citation count should be exist for every stock/publication 
+    for idx in range(len(data_set[1])): # stock price should be exist for every stock/publication 
         time_tmp = []
         for stamp in timestamps:
             source_tmp = []
@@ -74,33 +80,41 @@ def time_aligner(data_set, word2vec, args):
         aligned_data.append(time_tmp)
 
     # initializing input: entity * source * timestamp * dim
-    aligned_data = vector_initialize(aligned_data, word2vec, args.input_doc_dim)
+    doc_ind_init_emb_file = args.data_path + args.dataset + '/cache/init_emb_' + date.strftime('%Y%m%d') + '_' + mode + '.pkl'
+    aligned_data = vector_initialize(doc_ind_init_emb_file, aligned_data, args.input_bert_dim, tokenizer, model)
     return aligned_data
 
-def vector_initialize(data_set, wordvec, doc_vec_dim):
-    final_input = []
-    for item in data_set:
-        new_timestamp = []
-        for timestamp in item:
-            source_vec = []
-            if timestamp[0]:
-                doc_vecs = []
-                words = jieba.cut(timestamp[0])
-                for word in words:
-                    if word in wordvec:
-                        doc_vecs.append(wordvec[word])
-                doc_vec = torch.mean(torch.FloatTensor(doc_vecs), 0)
-            else:
-                doc_vec = torch.zeros(doc_vec_dim)
-            source_vec.append(doc_vec)
-            for ind_value in timestamp[1:]:
-                if ind_value:
-                    ind_vec = torch.FloatTensor([ind_value])
+def vector_initialize(file_name, data_set, doc_vec_dim, tokenizer, model):
+    final_input = None
+    # embeddings from lm already stored in file, load it
+    if os.path.isfile(file_name):
+        print('Initial embeddings already exist, load it.')
+        with open(file_name, 'rb') as f:
+            final_input = pickle.load(f)
+    else:
+        print('Get initial embeddings from scratch.')
+        final_input = []
+        for item in data_set:
+            new_timestamp = []
+            for timestamp in item:
+                source_vec = []
+                if timestamp[0]:
+                    doc_vec = get_emb_from_lm(model, tokenizer, timestamp[0]) # 128
                 else:
-                    ind_vec = torch.FloatTensor([0.0])
-                source_vec.append(ind_vec)
-            new_timestamp.append(source_vec)
-        final_input.append(new_timestamp)
+                    doc_vec = torch.zeros(doc_vec_dim)
+                source_vec.append(doc_vec)
+                for ind_value in timestamp[1:]:
+                    if ind_value:
+                        ind_vec = torch.FloatTensor([ind_value])
+                    else:
+                        ind_vec = torch.FloatTensor([0.0])
+                    source_vec.append(ind_vec)
+                new_timestamp.append(source_vec)
+            final_input.append(new_timestamp)
+            print('.', end=' ', flush=True)
+        # dump to init_emb.pkl file for reuse
+        with open(file_name, 'wb') as f:
+            pickle.dump(final_input, f)
     # switch dim 2 and dim 1 for faster process in gpu
     final_input_2 = []
     for item in final_input:
@@ -123,7 +137,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     shape = torch.Size(sparse_mx.shape)
     return torch.sparse.FloatTensor(indices, values, shape)
 
-def graph_process_static(args, input_graph, time_span):
+def graph_process_static(args, input_graph):
     features = None
     adj_list = []
     for snapshot in input_graph[:2]:
@@ -131,90 +145,11 @@ def graph_process_static(args, input_graph, time_span):
             node_list = list(snapshot.nodes())
             features = []
             # randomly initialize node embeddings
-            if not args.node_init_lm:
-                features = [torch.rand(args.input_graph_dim) for node in node_list]
-                features = torch.stack(features)
-            # initialize company node embeddings with language model
-            else:
-                node_init_emb_file = args.data_path + args.dataset + '/node_init_emb.pkl'
-                # embeddings from lm already stored in file, load it
-                if os.path.isfile(node_init_emb_file):
-                    with open(node_init_emb_file, 'rb') as f:
-                        node_init_emb = pickle.load(f)
-                    for node in node_list:
-                        if node in node_init_emb:
-                            features.append(node_init_emb[node])
-                        else:
-                            features.append(torch.rand(args.input_graph_dim))
-                # generate embeddings of each name from lm, and save to file
-                else:
-                    id_2_com_name = input_graph[2]
-                    id_2_emb = {}
-                    print("Generating node embeddings from LM: " + args.lm_name)
-                    tokenizer = AutoTokenizer.from_pretrained(args.lm_name, trust_remote_code=True)
-                    model = AutoModel.from_pretrained(args.lm_name, trust_remote_code=True)
-                    model = model.eval()
-                    for node in node_list:
-                        if node in id_2_com_name:
-                            node_emb = get_emb_from_lm(model, tokenizer, id_2_com_name[node])
-                            features.append(node_emb)
-                            id_2_emb[node] = node_emb
-                        else:
-                            features.append(torch.rand(args.input_graph_dim))
-                    with open(node_init_emb_file, 'wb') as f:
-                        pickle.dump(id_2_emb, f)
-                features = torch.stack(features)
+            features = [torch.rand(args.input_graph_dim) for node in node_list]
+            features = torch.stack(features)
         adj_sp_tensor = sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(snapshot))
         adj_list.append(adj_sp_tensor)
-    output = [{'features': features, 'adj_list': adj_list}] * time_span # timestamp * dict
-    return output
-
-def graph_process_dynamic(args, input_graph, time_span):
-    output = []
-    for timestamp in range(time_span):
-        features = None
-        adj_list = []
-        for snapshot in input_graph[timestamp][:2]:
-            if features is None:
-                node_list = list(snapshot.nodes())
-                features = []
-                # randomly initialize node embeddings
-                if not args.node_init_lm:
-                    features = [torch.rand(args.input_graph_dim) for node in node_list]
-                    features = torch.stack(features)
-                # initialize company node embeddings with language model
-                else:
-                    node_init_emb_file = args.data_path + args.dataset + '/node_init_emb.pkl'
-                    # embeddings from lm already stored in file, load it
-                    if os.path.isfile(node_init_emb_file):
-                        with open(node_init_emb_file, 'rb') as f:
-                            node_init_emb = pickle.load(f)
-                        for node in node_list:
-                            if node in node_init_emb:
-                                features.append(node_init_emb[node])
-                            else:
-                                features.append(torch.rand(args.input_graph_dim))
-                    # generate embeddings of each name from lm, and save to file
-                    else:
-                        id_2_com_name = input_graph[timestamp][2]
-                        id_2_emb = {}
-                        print("Generating node embeddings from LM: " + args.lm_name)
-                        tokenizer = AutoTokenizer.from_pretrained(args.lm_name, trust_remote_code=True)
-                        model = AutoModel.from_pretrained(args.lm_name, trust_remote_code=True)
-                        model = model.eval()
-                        for node in node_list:
-                            if node in id_2_com_name:
-                                node_emb = get_emb_from_lm(model, tokenizer, id_2_com_name[node])
-                                features.append(node_emb)
-                                id_2_emb[node] = node_emb
-                            else:
-                                features.append(torch.rand(args.input_graph_dim))
-                        with open(node_init_emb_file, 'wb') as f:
-                            pickle.dump(id_2_emb, f)
-                    features = torch.stack(features)
-            adj_sp_tensor = sparse_mx_to_torch_sparse_tensor(nx.adjacency_matrix(snapshot))
-            adj_list.append(adj_sp_tensor)
-        output.append({'features': features, 'adj_list': adj_list}) # timestamp * dict
+    output = [{'features': features, 'adj_list': adj_list}] # 1 * dict
     return output
 
 def get_emb_from_lm(model, tokenizer, input):
@@ -223,3 +158,25 @@ def get_emb_from_lm(model, tokenizer, input):
     last_hidden_states = model(inputs_tensor)[0] # 1 * seq_len * emb_size
     emb = torch.squeeze(torch.mean(last_hidden_states, 1), 0)
     return emb
+
+def get_emb_from_llm(args, time_length, idxs, mode):
+    embeddings = None
+    llm_emb_file = args.data_path + args.dataset + '/cache/llm_emb_' + mode + '.pkl'
+    # embeddings from llm already stored in file, load it
+    if os.path.isfile(llm_emb_file):
+        print('LLM embeddings already exist, load it.')
+        with open(llm_emb_file, 'rb') as f:
+            embeddings = pickle.load(f)
+    else:
+        print('Get LLM embeddings from scratch.')
+        embeddings = []
+        prompts = indicator_ts_to_text_prompt(args.data_path+args.dataset+'/stock_price.pkl', time_length, idxs)
+        for text in prompts:
+            text = text.replace("\n", " ")
+            emb = openai.Embedding.create(input = [text], model=llm_name)['data'][0]['embedding'] # 1536 dimension
+            embeddings.append(emb)
+            print('.', end=' ', flush=True)
+        with open(llm_emb_file, 'wb') as f:
+            pickle.dump(embeddings, f)
+    print('\n')
+    return torch.FloatTensor(embeddings) # entity * 1536

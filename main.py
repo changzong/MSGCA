@@ -11,35 +11,33 @@ import pdb
 def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default='./data/')
-    parser.add_argument("--dataset", type=str, choices=['inno_stock','dblp_paper'], default='dblp_paper')
-    parser.add_argument("--predict_date", type=str, choices=['2022-10-10','2008-01-01'], default='2008-01-01')
-    parser.add_argument("--word2vec", type=str, default='wordvec_dict.pkl')
-    parser.add_argument("--node_init_lm", action='store_true', default=False)
-    parser.add_argument("--lm_name", type=str, choices=['bert-base-chinese','bert-base-uncased'], default='bert-base-uncased')
+    parser.add_argument("--dataset", type=str, choices=['inno_stock', 'bd22_stock'], default='bd22_stock')
+    parser.add_argument("--predict_date", type=str, choices=['2022-10-10', '2020-04-11', '2008-01-01'], default='2020-04-11') # 2022-10-10 for inno_stock, 2020-04-11 for bd22_stock
     parser.add_argument("--sample_ratio", type=float, default=0.8)
     parser.add_argument("--date_move_steps", type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--learning_rate", type=float, default=0.001) # 0.001, 0.005, 0.01
     parser.add_argument('--weight_decay', type=float, default=5e-4)
-    parser.add_argument("--epoch_num", type=int, default=100)
-    parser.add_argument("--train_batch_size", type=int, default=300)
-    parser.add_argument("--test_batch_size", type=int, default=76)
+    parser.add_argument("--epoch_num", type=int, default=200)
+    parser.add_argument("--train_batch_size", type=int, default=40) # 300 for inno_stock, 40 for bd22_stock
+    parser.add_argument("--test_batch_size", type=int, default=10) # 76 for inno_stock, 10 for bd22_stock
+    parser.add_argument("--input_graph_dim", type=int, default=64)
+    parser.add_argument("--output_graph_dim", type=int, default=64)
+    parser.add_argument("--input_llm_dim", type=int, default=1536)
+    parser.add_argument("--output_know_dim", type=int, default=64)
     parser.add_argument("--input_ind_dim", type=int, default=1)
-    parser.add_argument("--input_doc_dim", type=int, default=300)
-    parser.add_argument("--input_graph_dim", type=int, default=768) # same with LM hidden size
-    parser.add_argument("--hidden_dim", type=int, default=64)
-    parser.add_argument("--direction_type", type=str, choices=['st', 'ts', 'bi'], default='ts')
-    parser.add_argument("--source_fusion_type", type=str, choices=['cat','trans','expert'], default='cat')
-    parser.add_argument("--ts_fusion_type", type=str, choices=['trans', 'rnn'], default='trans')
-    parser.add_argument("--all_fusion_type", type=str, choices=['mlp', 'trans_mlp', 'rgcn_mlp'], default='mlp')
-    parser.add_argument("--fusion_dim", type=int, default=64)
-    parser.add_argument("--score_dim", type=int, default=3)
+    parser.add_argument("--output_ind_dim", type=int, default=64)
+    parser.add_argument("--input_bert_dim", type=int, default=128) # 128 for bert-tiny
+    parser.add_argument("--output_doc_dim", type=int, default=64)
+    parser.add_argument("--input_att_dim", type=int, default=64)
+    parser.add_argument("--hidden_att_dim", type=int, default=64)
+    parser.add_argument("--output_att_dim", type=int, default=64)
+    parser.add_argument("--num_head", type=int, default=2)
     parser.add_argument('--use_cuda', action='store_true', default=True)
-    parser.add_argument('--use_spike_predictor', action='store_true', default=False)
     args = parser.parse_args()
     return args
 
-def train_model(args, input_data, label, sources):
+def train_model(args, input_data, label):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -54,23 +52,19 @@ def train_model(args, input_data, label, sources):
     predict_date = dt.datetime.strptime(args.predict_date, '%Y-%m-%d')
     predict_dates = [predict_date]
     for i in range(args.date_move_steps):
-        predict_date += dt.timedelta(days=10)
+        predict_date += dt.timedelta(days=10) # 10 days move
         predict_dates.append(predict_date)
     # Generating samples
     train_set = []
     test_set = []
     train_label = []
     test_label = []
-
-    print("Loading word vectors...")
-    with open(args.data_path + args.word2vec, 'rb') as f:
-        wordvec_dict = pickle.load(f)
-
+    print("Preprocessing indicator and document data...")
     for date in predict_dates:
         train_subset = [build_input(date, input_data[i], train_idxs, 'lt') for i in range(len(input_data[:-1]))]
-        train_set.extend(time_aligner(train_subset, wordvec_dict, args))
+        train_set.extend(time_aligner(train_subset, args, date, 'train'))
         test_subset = [build_input(date, input_data[i], test_idxs, 'lt') for i in range(len(input_data[:-1]))]
-        test_set.extend(time_aligner(test_subset, wordvec_dict, args))
+        test_set.extend(time_aligner(test_subset, args, date, 'test'))
         train_label.extend(build_input(date, label, train_idxs, 'gt'))
         test_label.extend(build_input(date, label, test_idxs, 'gt'))
 
@@ -93,21 +87,24 @@ def train_model(args, input_data, label, sources):
     
     # prepare graph structure input and node indexs
     print("Processing graph data...")
-    graph_input = None
-    if args.dataset == 'inno_stock':
-        graph_input = graph_process_static(args, input_data[-1], time_span_train)
-    elif args.dataset == 'dblp_paper':
-        graph_input = graph_process_dynamic(args, input_data[-1], time_span_train)
+    graph_input = graph_process_static(args, input_data[-1])
 
     node_train_idxs = train_idxs * (args.date_move_steps+1)
     node_test_idxs = test_idxs * (args.date_move_steps+1)
 
+    print("Generating LLM embeddings...")
+    time_length = len(train_set[0][0])
+    llm_embeddings_train = get_emb_from_llm(args, time_length, node_train_idxs, 'train')
+    llm_embeddings_test = get_emb_from_llm(args, time_length, node_test_idxs, 'test')
+
     # load model and train
-    model = Model(args, sources, device)
+    model = Model(args, device)
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     
+    best_acc = 0.0
+    best_mcc = 0.0
     for epoch in range(args.epoch_num):
         train_loss = 0.0
         test_loss = 0.0
@@ -119,7 +116,7 @@ def train_model(args, input_data, label, sources):
             end = (i+1) * args.train_batch_size
             if end > len(train_set):
                 end = len(train_set)
-            loss = model(train_set[start: end], graph_input, node_train_idxs[start: end], train_label[start: end], 'train')
+            loss = model(train_set[start: end], graph_input, llm_embeddings_train[start: end], node_train_idxs[start: end], train_label[start: end], 'train')
             print('Epoch: %s Batch %s Training loss: %s' % (str(epoch), str(i), str(loss.item())))
             optimizer.zero_grad()
             loss.backward()
@@ -131,13 +128,18 @@ def train_model(args, input_data, label, sources):
         print("Evaluating for epoch: {}".format(epoch))
         with torch.no_grad():
             model.eval()
-            acc, mcc = model(test_set, graph_input, node_test_idxs, test_label, 'test')
+            acc, mcc = model(test_set, graph_input, llm_embeddings_test, node_test_idxs, test_label, 'test')
+            if acc > best_acc:
+                best_acc = acc
+            if mcc > best_mcc:
+                best_mcc = mcc
             print('Test Accuracy: %s' % str(acc))
             print('Test Matthews Correlation Coefficient: %s' % str(mcc))
+    print('Best result: ACC: ' + str(best_acc) + ' MCC: ' + str(best_mcc))
 
 
 args = set_args()
 # doc should be the first, then indicator types, graph should be the last
 sources = ['document', 'indicator', 'graph']
 input_data, label = load_data(args, sources)
-train_model(args, input_data, label, sources)
+train_model(args, input_data, label)

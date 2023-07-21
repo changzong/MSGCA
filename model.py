@@ -3,45 +3,36 @@ import torch.nn as nn
 import numpy as np
 from sklearn.metrics import accuracy_score, matthews_corrcoef
 
-from source_encoder import SourceEncoder
-from fusion_model import FusionModel
-from predictor import ScorePredictor
+from graph_encoder import GraphKnowEncoder
+from knowledge_fusion import KnowFusionModel
+from indicator_encoder import IndicatorEncoder
+from document_encoder import DocEncoder
+from cross_attention import CrossAttentionEncoder
 
 import pdb
 
 class Model(nn.Module):
-    def __init__(self, args, sources, device):
+    def __init__(self, args, device):
         super().__init__()
         self.args = args
         self.device = device
-        self.encoder = SourceEncoder(args.input_ind_dim, args.input_doc_dim, args.input_graph_dim, args.hidden_dim, args.data_path + args.word2vec, self.device)
-        self.fusion_model = FusionModel(args.hidden_dim, args.hidden_dim, args.fusion_dim, args.direction_type, args.source_fusion_type, args.ts_fusion_type, args.all_fusion_type, sources, self.device)
-        self.predictor = ScorePredictor(args.fusion_dim, args.score_dim, args.use_spike_predictor, self.device)
+        self.graph_encoder = GraphKnowEncoder(device, args.input_graph_dim, args.output_graph_dim)
+        self.knowledge_encoder = KnowFusionModel(device, args.input_llm_dim, args.input_graph_dim, args.output_know_dim)
+        self.indicator_encoder = IndicatorEncoder(device, args.input_ind_dim, args.output_ind_dim)
+        self.document_encoder = DocEncoder(device, args.input_bert_dim, args.output_doc_dim)
+        self.cross_att_encoder = CrossAttentionEncoder(device, args.input_att_dim, args.hidden_att_dim, args.output_att_dim, args.num_head)
 
-    def loss_function(self, output, target):
-        loss_fn = nn.CrossEntropyLoss()
-        loss = loss_fn(output, torch.tensor(target).to(self.device))
-        return loss
+    def forward(self, input_data, graph, llm_embs, idxs, label, mode):
+        node_embs = self.graph_encoder(graph) # 1 * node_num * dim
+        graph_emb = torch.index_select(node_embs, 1, torch.tensor(idxs).to(self.device)) # 1 * entity_num * dim
+        graph_emb = torch.squeeze(torch.permute(graph_emb, (1,0,2)), 1) # entity * dim
+        knowledge_embedding = self.knowledge_encoder(llm_embs, graph_emb)
+        pdb.set_trace()
+        indicator_embedding = self.indicator_encoder(indicator_seq)
+        document_embedding = self.document_encoder(text_seq)
 
-    def evaluate(self, output, target):
-        output_labels = torch.argmax(output, dim=1)
-        acc = accuracy_score(output_labels.cpu().numpy(), np.array(target))
-        mcc = matthews_corrcoef(output_labels.cpu().numpy(), np.array(target))
-        return acc, mcc
+        cross_embedding1 = self.cross_att_encoder(indicator_embedding, document_embedding)
+        knowledge_embedding = knowledge_embedding.unsqueeze(0).repeat(indicator_embedding.shape[0],1)
+        cross_ebmedding2 = self.cross_att_encoder(cross_embedding1, knowledge_embedding)
 
-    def forward(self, input_data, graph, idxs, label, mode):
-        # shap: sample_num * timestamp_num * source_num * embedding_dim
-        source_embedding = self.encoder(input_data, graph, idxs)
-        fusion_embedding = self.fusion_model(source_embedding)
-        predict_score = self.predictor(fusion_embedding)
-        future_days = 1
-        target = []
-        for item in label:
-            target.append(item[future_days-1][0]) # 0,1,2 class indices
-
-        if mode == 'train':
-            loss = self.loss_function(predict_score, target)
-            return loss
-        elif mode == 'test':
-            acc, mcc  = self.evaluate(predict_score, target)
-            return acc, mcc
+        pdb.set_trace()
