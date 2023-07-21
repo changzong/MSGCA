@@ -13,7 +13,6 @@ class KnowFusionModel(nn.Module):
     def forward(self, emb1, emb2):
         hidden1 = self.linear1(emb1.to(self.device))
         hidden2 = self.linear2(emb2.to(self.device))
-        pdb.set_trace()
-        hidden = torch.permute(torch.stack([hidden1, hidden2]), (1, 0)) # output_dim * 2
-        output = self.layer(hidden) # output_dim * 1
-        return torch.squeeze(output, 1) # output_dim
+        hidden = torch.permute(torch.stack([hidden1, hidden2]), (1, 2, 0)) # batch * output_dim * 2
+        output = self.layer(hidden) # batch * output_dim * 1
+        return torch.squeeze(output, 2) # batch * output_dim

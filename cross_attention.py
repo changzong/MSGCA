@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 class CrossAttentionEncoder(nn.Module):
     def __init__(self, device, input_dim, hidden_dim, output_dim, num_head):
@@ -66,3 +67,10 @@ class ScaledDotProductAttention(nn.Module):
         attention = nn.Softmax(dim=-1)(scores)
         context = torch.matmul(attention, V)
         return context, attention
+
+class AutoCorrelation(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, Q, K, V):
+        pass

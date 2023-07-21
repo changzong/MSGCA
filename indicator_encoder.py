@@ -9,6 +9,6 @@ class IndicatorEncoder(nn.Module):
         self.output_dim = output_dim
         self.linear = nn.Linear(input_dim, output_dim).to(device)
 
-    def forward(self, indicator_vec):
-        indicator_embedding = self.linear(indicator_vec.to(self.device)) # timestamp * output_dim
-        return output
+    def forward(self, ind_seq):
+        ind_embedding = self.linear(ind_seq.to(self.device)) # timestamp * output_dim
+        return ind_embedding

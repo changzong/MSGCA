@@ -32,6 +32,8 @@ def set_args():
     parser.add_argument("--input_att_dim", type=int, default=64)
     parser.add_argument("--hidden_att_dim", type=int, default=64)
     parser.add_argument("--output_att_dim", type=int, default=64)
+    parser.add_argument("--input_pred_dim", type=int, default=64)
+    parser.add_argument("--output_pred_dim", type=int, default=3)
     parser.add_argument("--num_head", type=int, default=2)
     parser.add_argument('--use_cuda', action='store_true', default=True)
     args = parser.parse_args()
