@@ -20,7 +20,7 @@ class Model(nn.Module):
         self.graph_encoder = GraphKnowEncoder(device, args.input_graph_dim, args.output_graph_dim)
         self.knowledge_encoder = KnowFusionModel(device, args.input_llm_dim, args.input_graph_dim, args.output_know_dim)
         self.indicator_encoder = IndicatorEncoder(device, args.input_ind_dim, args.output_ind_dim)
-        self.document_encoder = DocEncoder(device, args.input_bert_dim, args.output_doc_dim)
+        self.document_encoder = DocEncoder(device, args.input_doc_dim, args.output_doc_dim)
         self.cross_att_encoder1 = CrossAttentionEncoder(device, args.input_att_dim, args.hidden_att_dim, args.output_att_dim, args.num_head)
         self.cross_att_encoder2 = CrossAttentionEncoder(device, args.input_att_dim, args.hidden_att_dim, args.output_att_dim, args.num_head)
         self.predictor = Predictor(device, args.input_pred_dim, args.output_pred_dim)
@@ -47,12 +47,12 @@ class Model(nn.Module):
         indicator_embedding = self.indicator_encoder(ind_seq) # batch * seq * dim
         document_embedding = self.document_encoder(doc_seq) # batch * seq * dim
 
-        cross_embedding1, _ = self.cross_att_encoder1(indicator_embedding, document_embedding)
+        cross_embedding, _ = self.cross_att_encoder1(indicator_embedding, document_embedding)
         # repeat knowledge embedding along with timestamp
         knowledge_embedding = knowledge_embedding.unsqueeze(1).repeat(1,indicator_embedding.shape[1],1)
-        cross_ebmedding2, _ = self.cross_att_encoder2(cross_embedding1, knowledge_embedding)
+        cross_embedding, _ = self.cross_att_encoder2(cross_embedding, knowledge_embedding)
 
-        output_score = self.predictor(cross_ebmedding2) # batch * 3
+        output_score = self.predictor(cross_embedding) # batch * 3
 
         future_days = 1
         target = []

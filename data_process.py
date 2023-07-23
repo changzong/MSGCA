@@ -5,7 +5,7 @@ import scipy as sp
 import networkx as nx
 from datetime import datetime
 import pickle
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel, BertTokenizer, ErnieModel
 from ts_to_prompt import *
 import openai
 
@@ -13,8 +13,6 @@ import pdb
 
 openai.api_key = "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"
 llm_name = 'text-embedding-ada-002'
-tokenizer = AutoTokenizer.from_pretrained('prajjwal1/bert-tiny', trust_remote_code=True)
-model = AutoModel.from_pretrained('prajjwal1/bert-tiny', trust_remote_code=True)
 
 def load_data(args, sources):
     input_data = []
@@ -81,7 +79,17 @@ def time_aligner(data_set, args, date, mode):
 
     # initializing input: entity * source * timestamp * dim
     doc_ind_init_emb_file = args.data_path + args.dataset + '/cache/init_emb_' + date.strftime('%Y%m%d') + '_' + mode + '.pkl'
-    aligned_data = vector_initialize(doc_ind_init_emb_file, aligned_data, args.input_bert_dim, tokenizer, model)
+    model = None
+    tokenizer = None
+    if args.dataset == 'inno_stock':
+        tokenizer = BertTokenizer.from_pretrained("nghuyong/ernie-3.0-nano-zh")
+        model = ErnieModel.from_pretrained("nghuyong/ernie-3.0-nano-zh")
+    elif args.dataset == 'bd22_stock':
+        tokenizer = AutoTokenizer.from_pretrained('prajjwal1/bert-tiny')
+        model = AutoModel.from_pretrained('prajjwal1/bert-tiny')
+    else:
+        raise Exception('Incorrect dataset!')
+    aligned_data = vector_initialize(doc_ind_init_emb_file, aligned_data, args.input_doc_dim, tokenizer, model)
     return aligned_data
 
 def vector_initialize(file_name, data_set, doc_vec_dim, tokenizer, model):
@@ -167,6 +175,7 @@ def get_emb_from_llm(args, time_length, idxs, mode):
         print('LLM embeddings already exist, load it.')
         with open(llm_emb_file, 'rb') as f:
             embeddings = pickle.load(f)
+        embeddings = embeddings * (args.date_move_steps+1) # repeat to be same length as training and test set
     else:
         print('Get LLM embeddings from scratch.')
         embeddings = []
@@ -178,5 +187,6 @@ def get_emb_from_llm(args, time_length, idxs, mode):
             print('.', end=' ', flush=True)
         with open(llm_emb_file, 'wb') as f:
             pickle.dump(embeddings, f)
+        embeddings = embeddings * (args.date_move_steps+1) # repeat to be same length as training and test set
     print('\n')
     return torch.FloatTensor(embeddings) # entity * 1536

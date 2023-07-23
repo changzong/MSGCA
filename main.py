@@ -12,22 +12,22 @@ def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default='./data/')
     parser.add_argument("--dataset", type=str, choices=['inno_stock', 'bd22_stock'], default='bd22_stock')
-    parser.add_argument("--predict_date", type=str, choices=['2022-10-10', '2020-04-11', '2008-01-01'], default='2020-04-11') # 2022-10-10 for inno_stock, 2020-04-11 for bd22_stock
+    parser.add_argument("--predict_date", type=str, choices=['2022-10-10', '2020-04-11'], default='2020-04-11') # 2022-10-10 for inno_stock, 2020-04-11 for bd22_stock
     parser.add_argument("--sample_ratio", type=float, default=0.8)
-    parser.add_argument("--date_move_steps", type=int, default=3)
+    parser.add_argument("--date_move_steps", type=int, default=10) # 3 for inno_stock, 10 for bd22_stock
+    parser.add_argument("--date_move_len", type=int, default=3) # 10 for inno_stock, 3 for bd22_stock
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--learning_rate", type=float, default=0.001) # 0.001, 0.005, 0.01
-    parser.add_argument('--weight_decay', type=float, default=5e-4)
-    parser.add_argument("--epoch_num", type=int, default=200)
+    parser.add_argument("--learning_rate", type=float, default=0.0001) # 0.0001 for inno_stock
+    parser.add_argument('--weight_decay', type=float, default=0)
+    parser.add_argument("--epoch_num", type=int, default=400) # 200 for inno_stock, 300 for bd22_stock
     parser.add_argument("--train_batch_size", type=int, default=40) # 300 for inno_stock, 40 for bd22_stock
-    parser.add_argument("--test_batch_size", type=int, default=10) # 76 for inno_stock, 10 for bd22_stock
     parser.add_argument("--input_graph_dim", type=int, default=64)
     parser.add_argument("--output_graph_dim", type=int, default=64)
-    parser.add_argument("--input_llm_dim", type=int, default=1536)
+    parser.add_argument("--input_llm_dim", type=int, default=1536) # embedding dim of openai text-embedding-ada-002 model
     parser.add_argument("--output_know_dim", type=int, default=64)
     parser.add_argument("--input_ind_dim", type=int, default=1)
     parser.add_argument("--output_ind_dim", type=int, default=64)
-    parser.add_argument("--input_bert_dim", type=int, default=128) # 128 for bert-tiny
+    parser.add_argument("--input_doc_dim", type=int, default=128) # 128 for bert-tiny, 312 for ernie-nano
     parser.add_argument("--output_doc_dim", type=int, default=64)
     parser.add_argument("--input_att_dim", type=int, default=64)
     parser.add_argument("--hidden_att_dim", type=int, default=64)
@@ -54,7 +54,7 @@ def train_model(args, input_data, label):
     predict_date = dt.datetime.strptime(args.predict_date, '%Y-%m-%d')
     predict_dates = [predict_date]
     for i in range(args.date_move_steps):
-        predict_date += dt.timedelta(days=10) # 10 days move
+        predict_date += dt.timedelta(days=args.date_move_len) # days move
         predict_dates.append(predict_date)
     # Generating samples
     train_set = []
@@ -96,8 +96,9 @@ def train_model(args, input_data, label):
 
     print("Generating LLM embeddings...")
     time_length = len(train_set[0][0])
-    llm_embeddings_train = get_emb_from_llm(args, time_length, node_train_idxs, 'train')
-    llm_embeddings_test = get_emb_from_llm(args, time_length, node_test_idxs, 'test')
+    llm_embeddings_train = get_emb_from_llm(args, time_length, train_idxs, 'train')
+    llm_embeddings_test = get_emb_from_llm(args, time_length, test_idxs, 'test')
+
 
     # load model and train
     model = Model(args, device)

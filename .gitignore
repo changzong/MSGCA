@@ -130,3 +130,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+data/bd22_stock/cache/*.*
+data/inno_stock/cache/*.*

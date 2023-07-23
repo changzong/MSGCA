@@ -2,12 +2,14 @@ import pickle
 from datetime import datetime
 import pdb
 
-prompt_template = '''From %start_date% to %end_date%, the close prices of stock %stock_name% were %price_ts% on each day.
-With the information above, what is the close price going to be on %predict_date%, %week_day%?'''
+prompt_template = '''From <start_date> to <end_date>, the close prices of stock <stock_name> were <price_ts> on each day.'''
 
-prompt_template_desc = '''%stock_name% is the stock code of %company_name%. It is a %company_desc%.
-From %start_date% to %end_date%, the close prices of stock %stock_name% were %price_ts% on each day.
-With the information above, what is the close price going to be on %predict_date%, %week_day%?'''
+prompt_template_question = '''From <start_date> to <end_date>, the close prices of stock <stock_name> were <price_ts> on each day.
+What is the close price going to be on <predict_date>, <week_day>?'''
+
+prompt_template_desc = '''<stock_name> is the stock code of <company_name>. It is a <company_desc>.
+From <start_date> to <end_date>, the close prices of stock <stock_name> were <price_ts> on each day.
+What is the close price going to be on <predict_date>, <week_day>?'''
 
 weekday = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -37,12 +39,12 @@ def indicator_ts_to_text_prompt(price_file_path, train_ts_len, idxs):
         predict_date = v[train_ts_len+1][0]
         week_day = weekday[datetime.strptime(predict_date, '%Y-%m-%d').weekday()]
 
-        prompt = prompt_template.replace('%start_date%', start_date)
-        prompt = prompt.replace('%end_date%', end_date)
-        prompt = prompt.replace('%stock_name%', stock_name)
-        prompt = prompt.replace('%price_ts%', price_ts)
-        prompt = prompt.replace('%predict_date%', predict_date)
-        prompt = prompt.replace('%week_day%', week_day)
+        prompt = prompt_template_question.replace('<start_date>', start_date)
+        prompt = prompt.replace('<end_date>', end_date)
+        prompt = prompt.replace('<stock_name>', stock_name)
+        prompt = prompt.replace('<price_ts>', price_ts)
+        prompt = prompt.replace('<predict_date>', predict_date)
+        prompt = prompt.replace('<week_day>', week_day)
 
         stock_prompts.append(prompt)
 
@@ -54,7 +56,7 @@ def indicator_ts_to_text_prompt(price_file_path, train_ts_len, idxs):
 
 if __name__ == '__main__':
     idxs = [40, 7, 1, 17, 15, 14, 8, 6, 34, 5, 37, 27, 2, 47, 49, 13, 44, 32, 36, 46, 42, 22, 20, 28, 30, 41, 48, 33, 18, 43, 0, 35, 24, 10, 38, 39, 3, 12, 21, 31]
-    prompts = indicator_ts_to_text_prompt('./data/bd22_stock/stock_51_price.pkl', 252, idxs)
+    prompts = indicator_ts_to_text_prompt('./data/bd22_stock/stock_price.pkl', 252, idxs)
     pdb.set_trace()
 
 
